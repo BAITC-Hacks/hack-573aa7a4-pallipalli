@@ -1,0 +1,66 @@
+{
+  "active_in_agent": false,
+  "evidence_sha256": "7cecb8aa7e4f8b79f29fbd9383659b95e455629701a99c9f86c7dd89cda2fa6c",
+  "hypotheses": [
+    {
+      "campaign": {
+        "channel": "digital_ads",
+        "filter_arpu_segment": "MID",
+        "filter_current_tariff": "tariff_8",
+        "target_tariff": "tariff_10"
+      },
+      "candidate_id": "candidate_003",
+      "evidence_to_collect": "Repeat a matching pilot to reduce uncertainty in observed ARPU lift.",
+      "rationale": "candidate_003 has historical migration evidence from a different population."
+    },
+    {
+      "campaign": {
+        "channel": "call",
+        "filter_arpu_segment": "MID",
+        "filter_current_tariff": "tariff_12",
+        "target_tariff": "tariff_8"
+      },
+      "candidate_id": "candidate_004",
+      "evidence_to_collect": "Run a first matching pilot and record observed ARPU lift, contact count, and cost.",
+      "rationale": "candidate_004 has historical migration evidence from a different population."
+    },
+    {
+      "campaign": {
+        "channel": "digital_ads",
+        "filter_arpu_segment": "MID",
+        "filter_current_tariff": "tariff_10",
+        "target_tariff": "tariff_11"
+      },
+      "candidate_id": "candidate_006",
+      "evidence_to_collect": "Repeat a matching pilot to reduce uncertainty in observed ARPU lift.",
+      "rationale": "candidate_006 has historical migration evidence from a different population."
+    },
+    {
+      "campaign": {
+        "channel": "push",
+        "filter_arpu_segment": "HIGH",
+        "filter_current_tariff": "tariff_8",
+        "target_tariff": "tariff_11"
+      },
+      "candidate_id": "candidate_020",
+      "evidence_to_collect": "Repeat a matching pilot to reduce uncertainty in observed ARPU lift.",
+      "rationale": "candidate_020 has historical migration evidence from a different population."
+    },
+    {
+      "campaign": {
+        "channel": "call",
+        "filter_arpu_segment": "MID",
+        "filter_current_tariff": "tariff_3",
+        "target_tariff": "tariff_8"
+      },
+      "candidate_id": "candidate_015",
+      "evidence_to_collect": "Run a first matching pilot and record observed ARPU lift, contact count, and cost.",
+      "rationale": "candidate_015 has historical migration evidence from a different population."
+    }
+  ],
+  "model": "gpt-4.1-mini-2025-04-14",
+  "policy_sha256": "5309918c92bd4903cd5a6c144a6f986cff8124fe014116fa64d2eeb71f58ff9c",
+  "prompt_version": "beeline-analyst-v2-grounded",
+  "status": "proposal_requires_evaluation",
+  "version": 1
+}

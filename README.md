@@ -12,6 +12,18 @@ python local_eval.py
 
 Submit `agent.py`, **`planner.py`**, `submission.csv`, `requirements.txt`, and the provided `data/change_tariff.csv`. `agent.py` imports the planner module, so both Python files must be included. The organizer's submission generator uses seed 42. Keep the organizer environment, evaluator, and data files unchanged.
 
+## Optional OpenAI analyst
+
+```bash
+pip install -r requirements-llm.txt
+python analyst.py report                 # offline report, no API cost
+python analyst.py report --openai        # uses OPENAI_API_KEY
+```
+
+The analyst explains the plan using grounded public evidence and proposes candidate hypotheses. It runs separately from the scored agent, with deterministic fallback reports on API errors. Suggestions can be frozen for future evaluation; they are not activated automatically.
+
+[Integration guide](docs/OPENAI_INTEGRATION.md) · [Live validation](docs/OPENAI_VALIDATION.md) · [Project context](docs/PROJECT_CONTEXT.md)
+
 ## How decisions are made
 
 1. Rank destination tariffs using clipped historical relative ARPU changes, migration frequency, and shrinkage for small samples. Migration frequency is a ranking proxy, not an identified causal conversion probability.
@@ -47,4 +59,4 @@ python -m unittest -v test_agent test_planner
 
 `python benchmark.py` compares the current agent with the organizer starter. The [earlier starter comparison](docs/BENCHMARK.md) records the previous greedy revision's results. All local scores use synthetic data; changing seeds changes pilot randomness, not the underlying audience. Hidden judging uses different effects.
 
-See the [initial project brief](docs/INITIAL_PROJECT_BRIEF.md).
+See the [solution tactics and experiment order](docs/SOLUTION_TACTICS.md) and [initial project brief](docs/INITIAL_PROJECT_BRIEF.md).
