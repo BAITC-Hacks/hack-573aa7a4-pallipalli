@@ -5,7 +5,8 @@
 пилотами, а потом запускает до 10 кампаний.
 
 Решение — один файл [agent.py](agent.py). Остальные файлы — пакет организаторов
-и [stress_eval.py](stress_eval.py), наш стресс-тест.
+и [stress_eval.py](stress_eval.py), наш стресс-тест. Исходное описание задачи и
+первоначальный план — в [docs/INITIAL_PROJECT_BRIEF.md](docs/INITIAL_PROJECT_BRIEF.md).
 
 ## Идея коротко
 
