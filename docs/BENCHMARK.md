@@ -1,4 +1,6 @@
-# Campaign agent comparison
+# Historical comparison: greedy agent versus starter
+
+This report records the greedy implementation in commit `6e4c9ba`. See [the current planner comparison](PLANNER_COMPARISON.md) for the latest change. Running `benchmark.py` now evaluates the current agent, rather than reproducing the historical implementation.
 
 Evaluated on 2026-09-23 with the official participant package. Baseline: unchanged `agent_template.py`, equivalent to `agent.py` on repository main at `ae3a526aee5239e268735f7333c275d3cbd7df29`. Candidate: the new history-informed pilot agent. No organizer environment, simulator, scorer, or data files were modified.
 

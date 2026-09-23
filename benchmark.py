@@ -27,6 +27,7 @@ class CheckedAgent:
         self.campaigns = None
         self.pilot_calls = 0
         self.elapsed = 0.0
+        self.pilot_trace = []
 
     def act(self, env):
         original = env.run_pilot
@@ -35,6 +36,7 @@ class CheckedAgent:
             assert 10 <= requested <= 200, "Pilot size outside allowed range"
             result = original(*args, **kwargs)
             self.pilot_calls += 1
+            self.pilot_trace.append({"request": dict(kwargs), "result": dict(result)})
             assert self.pilot_calls <= 20
             assert env.remaining_budget >= 0 and env.remaining_contacts >= 0
             return result
@@ -68,7 +70,8 @@ def run(implementation, seed):
     assert all(c["n_contacts"] <= 5000 for c in score["campaigns_detail"])
     return dict(score, seed=seed, final_campaigns=len(checked.campaigns or []),
                 act_seconds=checked.elapsed, validation_errors=checked.errors,
-                evaluator_messages=log.getvalue())
+                evaluator_messages=log.getvalue(), pilot_trace=checked.pilot_trace,
+                plan_diagnostics=getattr(checked.implementation, "plan_diagnostics", {}))
 
 
 def summarize(rows):

@@ -2,40 +2,49 @@
 
 Offline agent for Track 04. Uses pandas and NumPy; no API key, hosted model, GPU, or network connection is required at evaluation time.
 
-## Run
+## Run and submit
 
 ```bash
 pip install -r requirements.txt
 python make_submission.py
+python local_eval.py
 ```
 
-This creates `submission.csv` with the organizer's fixed seed of 42. Submit it together with `agent.py`, `requirements.txt`, and the provided `data/change_tariff.csv`. Keep the organizer's environment and evaluator files unchanged.
+Submit `agent.py`, **`planner.py`**, `submission.csv`, `requirements.txt`, and the provided `data/change_tariff.csv`. `agent.py` imports the planner module, so both Python files must be included. The organizer's submission generator uses seed 42. Keep the organizer environment, evaluator, and data files unchanged.
 
-To reproduce the comparison and behavior checks:
+## How decisions are made
+
+1. Rank destination tariffs using clipped historical relative ARPU changes, migration frequency, and shrinkage for small samples. Migration frequency is a ranking proxy, not an identified causal conversion probability.
+2. Compare channels using public costs and effectiveness multipliers. Explore different groups, then repeat promising pilots when resources allow. Reserve 75% of initial money for deployment and at most 27% of contacts (capped at 4,000) for exploration.
+3. Update a weak historical prior with pilot feedback and the documented pilot noise. Use a conservative lower estimate of campaign profit. The uncertainty estimate is heuristic, not a calibrated guarantee under population shift or adaptive selection.
+4. **Compare whole ordered campaign plans of different sizes, up to ten.** Beam search retains up to 256 states per depth, merges equivalent states, and keeps the previous greedy plan as an incumbent. It never pads a plan to ten campaigns. Order matters when money or contacts can only fund part of a campaign.
+5. Select disjoint current-tariff/ARPU groups. Discount possible overlap with pilots without accessing their private subscriber identities. Track money, contact, and 5,000-contact campaign caps in every proposed plan.
+
+If no campaign clears the profitability threshold, the case still requires one. The agent uses a small audience and a free channel to limit exposure. This fallback may lose ARPU; free contact does not imply a safe tariff change.
+
+## Latest comparison
+
+Compared with the frozen greedy version from commit `6e4c9ba`, on 91 matched seeds:
+
+- Mean net gain: **3,184,027**, versus **3,137,647** (+1.48%).
+- 17 wins, 72 ties, 2 losses; both versions profitable on all 91 seeds.
+- Seed 42: **3,240,024**, unchanged, with four final campaigns.
+- Selected campaign counts ranged from three to seven.
+- All 15 behavior/planner tests passed. Submission CSV is reproducible.
+
+The same pilots and feedback were confirmed for both versions on every seed, isolating the change in plan selection. A better estimated plan can still have a worse true simulated score because the pilot estimates are noisy. Beam search is approximate; keeping the greedy incumbent protects the estimated objective, not the hidden score.
+
+[Latest comparison and limitations](docs/PLANNER_COMPARISON.md) · [Per-run CSV](docs/planner-runs.csv) · [Detailed JSON and hashes](docs/planner-results.json)
+
+## Reproduce checks
 
 ```bash
-python local_eval.py
-python local_eval.py --runs 10
-python benchmark.py
-python -m unittest -v test_agent
+python compare_planners.py
+python -m unittest -v test_agent test_planner
 ```
 
-## Approach
+`greedy_agent.py` is the frozen reference used only for comparison. `compare_planners.py` regenerates current `submission.csv` and planner result artifacts. The six original agent tests and nine planner tests cover variable campaign count, budget/contact truncation, disjoint groups, deterministic output, and agreement with exhaustive search on small instances.
 
-1. Group the public audience by current tariff and ARPU segment.
-2. Rank destinations using historical relative ARPU changes, clipped to limit outliers and shrunk toward zero for small samples. Historical migration frequency is only a ranking proxy: this dataset does not identify causal conversion rates.
-3. Compare available channels using their public costs and multipliers. Explore different groups, then repeat promising pilots to reduce uncertainty. Reserve 75% of the initial monetary budget for deployment and at most 27% of contacts (capped at 4,000) for exploration.
-4. Update a weak historical prior with observed pilot ratios and the documented pilot noise. Use a conservative lower estimate when selecting final campaigns. This is a heuristic uncertainty estimate, not a calibrated guarantee under population shift or adaptive selection.
-5. Greedily choose up to ten campaigns by estimated incremental net value, respecting money, contact, and 5,000-contact campaign caps. Final campaigns use disjoint tariff/ARPU cells. The planner conservatively discounts possible pilot overlap without accessing private subscriber identities.
-
-If no campaign clears the profitability threshold, the case still requires at least one. The agent chooses a small audience and a free channel to limit exposure. Such a fallback can lose ARPU; free contact does not imply a safe tariff change.
-
-## Status
-
-The agent was evaluated against the unchanged organizer starter on 61 matched seeds: 42, 0–29, and 100–129. It was profitable and beat the starter in all 61 runs. At seed 42, net gain was **+3,240,024**, versus **-1,035,279** for the starter. All six behavior tests passed, and generating the seed-42 submission twice produced identical CSV content with four campaigns.
-
-See [the comparison report](docs/BENCHMARK.md), [per-run results](docs/benchmark-runs.csv), and [runtime, checksums, and detailed seed-42 scores](docs/benchmark-results.json). These checks vary pilot randomness on one local population; they do not validate performance on the hidden population.
-
-The hidden judging audience differs from the historical data and local simulator. Greedy planning is not a globally optimal allocation. Pilot costs and outcomes count toward the final score, and uncertainty remains after pilots.
+`python benchmark.py` compares the current agent with the organizer starter. The [earlier starter comparison](docs/BENCHMARK.md) records the previous greedy revision's results. All local scores use synthetic data; changing seeds changes pilot randomness, not the underlying audience. Hidden judging uses different effects.
 
 See the [initial project brief](docs/INITIAL_PROJECT_BRIEF.md).

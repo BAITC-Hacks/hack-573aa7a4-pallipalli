@@ -5,8 +5,6 @@ import math
 import numpy as np
 import pandas as pd
 
-from planner import select_plan
-
 
 class Agent:
     # Publicly documented pilot noise. History is a weak prior because the
@@ -151,20 +149,38 @@ class Agent:
             if not self._pilot(env, c):
                 break
 
-        # Compare entire ordered plans of different sizes, preserving the
-        # existing pilot policy and conservative candidate estimates.
-        pilot_counts = {}
-        for c in explored:
-            pilot_counts[c["cell"]] = pilot_counts.get(c["cell"], 0) + sum(
-                n for _, n in c["observations"])
-        options = [dict(c, lower=self._estimate(c)[2],
-                        pilot_contacts=pilot_counts[c["cell"]],
-                        cost=float(env.channels[c["campaign"]["channel"]]["cost_per_contact"]))
-                   for c in explored]
-        selected, self.plan_diagnostics = select_plan(
-            options, env.remaining_budget, env.remaining_contacts)
-        plan = [dict(options[i]["campaign"], campaign_name=f"plan_search_{j + 1}")
-                for j, i in enumerate(selected)]
+        # Only one final campaign per disjoint tariff/ARPU cell. Actual pilot
+        # identities are private, so pilot/final overlap cannot be removed;
+        # discount the possible duplicated lift conservatively instead.
+        plan, used_cells = [], set()
+        budget, contacts = float(env.remaining_budget), int(env.remaining_contacts)
+        while len(plan) < 10 and contacts > 0:
+            options = []
+            for c in explored:
+                if c["cell"] in used_cells:
+                    continue
+                cost = float(env.channels[c["campaign"]["channel"]]["cost_per_contact"])
+                n = min(len(c["values"]), contacts)
+                if cost:
+                    n = min(n, int(budget // cost))
+                if n <= 0:
+                    continue
+                _, _, lower = self._estimate(c)
+                pilot_n = sum(n0 for other in explored if other["cell"] == c["cell"]
+                              for _, n0 in other["observations"])
+                values = c["values"][:n]
+                overlap = min(n, pilot_n)
+                fresh_arpu = float(values.sum() - np.sort(values)[-overlap:].sum()) if overlap else float(values.sum())
+                gain = fresh_arpu * lower - n * cost
+                if lower > 0 and gain > 0:
+                    options.append((gain, c, n, cost))
+            if not options:
+                break
+            _, c, n, cost = max(options, key=lambda item: item[0])
+            plan.append(dict(c["campaign"], campaign_name=f"history_pilot_{len(plan) + 1}"))
+            used_cells.add(c["cell"])
+            contacts -= n
+            budget -= n * cost
 
         if not plan:
             # The case requires 1–10 campaigns even when evidence is weak.
