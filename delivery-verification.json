@@ -1,0 +1,19 @@
+{
+  "recommended": "combined",
+  "source_commit": "3cf067f7ce038a0a56145bda0a59e261e9388392",
+  "official_files_unchanged": true,
+  "submission_reproducible": true,
+  "tests_passed": 72,
+  "runtime_sha256": {
+    "agent.py": "79083f872fc3918fd2dab6812d4d84afd570d532296adedeb99345776f28fba4",
+    "hybrid_agent.py": "bfd624b5230dea9be59105f0d56b7f2edf065597dc1fcefcb9325b987eb49ae1",
+    "frozen_agent.py": "7635da4afcc591d3b2b8803080c63ebd3b9caeaa9b82213282ad09fbd8bb4375",
+    "planner.py": "f2f682113c598c6cde9ffb7b08661cb510febc913bd0606c026a5659f1192cd1",
+    "prior_model.py": "73fce791c6a62e13fdc778c62a8b92e1b9f9ef418937d7e112e80000cb60fffb",
+    "kg_policy.py": "b0d09c2a09096c9a8eb20f4974db7302fb3a6096b1525a69b2e93afe6469754e",
+    "grouped_planner.py": "78cb6a07ceb133897a551ee35487bea08340f14c09f66bfe86444342eceb3876",
+    "submission.csv": "97c589873f9ae96fa5dfc02336f44e7d1b73679ec0af333ddc7e15ff2170070b",
+    "requirements.txt": "faeb826d7cfaecff11bde4aef44cf68dcf9ec510b08efc733e8ffc6bacab3b83",
+    "data/change_tariff.csv": "c52d7dad11fccc7425afe6d36a44a1fa03c8cc148be2039ce264d0c5c100f230"
+  }
+}

@@ -29,7 +29,9 @@ def _gain_curve(values, lower, pilot_contacts, cost):
 def select_plan(candidates, budget, contacts, max_campaigns=10, beam_width=256):
     """Return chosen candidate indices and search diagnostics.
 
-    Each candidate has: cell, values (in ID order), lower, pilot_contacts, cost.
+    Each candidate has: cell, values (in ID order), pilot_contacts, cost,
+    and either gain_ratio (expected incremental response) or legacy lower.
+    The agent owns uncertainty/overlap estimation; this module allocates resources.
     Exactly the same monetary/contact truncation is used as in the public scorer.
     Final campaigns cannot share a cell. Plans may stop at any size up to ten.
     """
@@ -40,9 +42,10 @@ def select_plan(candidates, budget, contacts, max_campaigns=10, beam_width=256):
     cells = {cell: i for i, cell in enumerate(dict.fromkeys(c["cell"] for c in candidates))}
     prepared = []
     for i, c in enumerate(candidates):
-        if c["lower"] <= 0 or not len(c["values"]):
+        ratio = c.get("gain_ratio", c.get("lower", 0.0))
+        if ratio <= 0 or not len(c["values"]):
             continue
-        curve = _gain_curve(c["values"], c["lower"], c["pilot_contacts"], c["cost"])
+        curve = _gain_curve(c["values"], ratio, c["pilot_contacts"], c["cost"])
         prepared.append((i, 1 << cells[c["cell"]], float(c["cost"]), curve))
 
     # State: estimated gain, money left, contacts left, used-cell mask, indices.

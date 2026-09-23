@@ -1,4 +1,59 @@
+# Latest implementation update: 23 September 2026
+
+The following section supersedes older numerical-agent descriptions below. The user requested review and integration of `feat/agent-solution`, pinned at `3cf067f7ce038a0a56145bda0a59e261e9388392`.
+
+The scored entry point now imports the combined implementation in `hybrid_agent.py`. Runtime files are `agent.py`, `hybrid_agent.py`, `frozen_agent.py`, `planner.py`, `prior_model.py`, `kg_policy.py`, and `grouped_planner.py`. Submit all seven plus requirements, submission.csv and the supplied migration history.
+
+New features: hierarchical mean and evidence-dependent prior variance; knowledge-gradient candidate/channel/sample-size decisions; optimistic four-target shortlists; compatible campaign merging with full-audience caps and exact sorted prefixes. The previous local best is frozen in `frozen_agent.py`; the reviewed branch is saved verbatim in `branch_agent.py`. The analyst remains separate.
+
+Results on 50 newly reserved seeds 500–549: old best mean 4,038,323; reviewed branch 4,842,687; combined 4,871,270. Combined wins all 50 versus old best, and 35 wins/2 ties/13 losses versus source branch. Seed 42 combined 4,730,893, below source branch 4,772,379. All combined runs valid/profitable. Seventy-two component, integration and optional-analyst tests passed. See `docs/BRANCH_EXPERIMENT.md`, `results/validation/summary.json`, and `run_experiment.py`. These are mock noise comparisons, not hidden population guarantees. No policy was tuned on seeds 500–549; they are now observed.
+
+Standing repository branch preference remains `galammadin`. Local experiment source is `work/branch-experiment/` in the shared workspace.
+
+---
+
+# Historical project context (preceding implementation)
+
 # PalliPalli — project context from the hackathon conversation
+
+## Latest update — trained ML agent, 2026-09-23
+
+The current agent is now a 25% learned-prior blend: agent.py imports
+ml_agent.LightBlendAgent, which extends campaign_policy.py (the existing
+statistical policy including its negative-feedback brake). reference_agent.py
+preserves the pre-ML snapshot. Historical model: NumPy histogram gradient
+boosting, 120 trees, depth 4, 103 features, saved in artifacts/ml/model.json plus
+campaign_priors.json. Training uses train_ml.py and inference historical_ml.py.
+Runtime remains pandas and NumPy only.
+
+Final 60 reserved local seeds: mean 4,517,863 versus 4,026,744 (+12.20%),
+60 wins, no losses, all valid/profitable. Historical subscriber test RMSE
+0.9085 versus 0.9640 (-5.76%). 59 tests pass. Portable release ZIP is in
+outputs/pallipalli-ml-submission.zip and verified in a clean directory;
+organizer files unchanged. Seed 42: 4,204,509 net, 95,938 cost, 8,293 contacts,
+20 pilots, 8 final campaigns.
+
+Read docs/ML_RESULTS.md and docs/ML_DATA_ANALYSIS.md for evidence. Some
+independent synthetic effect-shift scenarios perform worse with ML, and
+complete history reversal misses profitable offers outside the shortlist.
+The negative-feedback brake bounds exploration harm. No hidden-judge
+optimality claim. Final seeds 1000–1059 are now inspected and cannot be
+reused as untouched validation for future tuning.
+
+Submit all runtime modules, both model JSONs, history CSV, requirements, and
+submission.csv using package_submission.py. Optional API commentary remains
+outside scored decisions. Commit/push to galammadin as instructed.
+
+The earlier sections below are historical context and may describe
+superseded numerical policies.
+
+## Revenue optimization update — 2026-09-23
+
+The current numerical agent supersedes the earlier policy described below. It uses inexpensive SMS/push probes, normalized channel evidence, posterior expected net gain with a one-sigma eligibility gate, expected pilot overlap, all channel options, and a negative-feedback spending brake. The existing beam planner supports the new `gain_ratio` field while retaining the old `lower` interface.
+
+`plan_search_agent.py` is the exact frozen agent from `c303883` (also unchanged by optional analyst commit `55e0cee`). `compare_revenue.py` records121 matched runs: mean net4,012,347 versus3,189,595 (+25.8%);121 wins,0 losses;30 fresh seeds show+25.6%. Seed42 net3,872,723 and7 campaigns.46 tests pass. `stress_revenue.py` records40 scenario/seed/agent runs; reversed history and zero effects still lose money, though the spending brake reduces reversal losses. Stress scenarios were used during development, not held out.
+
+See `docs/REVENUE_COMPARISON.md`, raw comparison artifacts, and `stress_results/REVENUE_STRESS.md`. Keep optional analyst commentary separate; no API was used for this improvement. Core repro: `python compare_revenue.py` and `python -m unittest -v test_agent test_planner test_revenue`. Always commit to `galammadin`. Preserve organizer code/data and other task changes.
 
 ## Purpose and standing instructions
 
