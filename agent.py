@@ -1,30 +1,33 @@
 """
-Агент тарифных кампаний: байесовская разведка пилотами + распределение охвата.
+Агент тарифных кампаний v2: разведка, которая сама решает, насколько верить истории.
 
-Логика в трёх шагах:
+Отличия от agent.py:
 
-1. ПРИОР. Для каждой ячейки аудитории (current_tariff × arpu_segment) и каждого
-   целевого тарифа оцениваем эффект по истории data/change_tariff.csv:
-   средний % изменения ARPU × доля переходов. История описывает другую выборку,
-   поэтому неопределённость приора берём широкой (±100% от оценки).
+1. ДОВЕРИЕ К ИСТОРИИ УЧИТСЯ. Вместо зашитой погрешности приора агент считает,
+   что истинный эффект ≈ β·h + b ± τ ± ρ·|h| (h — оценка по истории), и после
+   каждого пилота уточняет β, b, τ, ρ по всем пилотам сразу (байесовская
+   сетка). τ — общий разброс, ρ — ошибка отдельного перехода, растущая с его
+   силой (например, перевёрнутый знак). История
+   подтвердилась — β≈1, τ мал, агент действует узко. История врёт — β→0, τ
+   растёт, приор всех гипотез расширяется и разведка сама становится широкой.
 
-2. РАЗВЕДКА. Каждый пилот выбирается адаптивно — тот, чей результат с наибольшей
-   ожидаемой пользой может изменить финальный план (knowledge gradient). Результат
-   пилота объединяется с приором по весам точности: пилот на 200 клиентах
-   сдвигает оценку сильно, на 40 — слабо.
+2. КАНДИДАТЫ — ВСЕ ТАРИФЫ. Если история врёт, лучший тариф может быть любым,
+   поэтому гипотезы заранее не отсекаем: выбор пилота делает knowledge gradient.
 
-3. ПЛАН. Кампанию запускаем только если консервативная оценка (среднее − κ·σ)
-   положительна. Охват (15 000 контактов) отдаём ячейкам с наибольшей ценностью
-   на контакт, затем оставшиеся деньги тратим на апгрейд канала там, где
-   дорогой канал окупается (дорогие абоненты × сильный эффект).
+3. ПИЛОТ — РЕАЛЬНЫЕ ЛЮДИ. В цену пилота входит ожидаемый ущерб его абонентам,
+   если эффект окажется отрицательным. В «плохом» мире разведка сворачивается.
+
+4. ОСТАТОК ОХВАТА — В PUSH. Бесплатные контакты не пропадают: их получают
+   группы с положительной оценкой, не вошедшие в основной план.
 """
 
 import math
 import os
 
+import numpy as np
 import pandas as pd
 
-# Шум пилота: std наблюдаемого эффекта ≈ PILOT_NOISE / sqrt(n) (≈0.07 на 150 клиентах).
+# Шум пилота: std наблюдаемого эффекта ≈ PILOT_NOISE / sqrt(n).
 PILOT_NOISE = 0.8
 PILOT_CHANNEL = "sms"
 PILOT_SIZES = (40, 80, 120, 200)
@@ -32,19 +35,29 @@ PILOT_CONTACT_SHARE = 0.25     # не больше четверти общего
 PILOT_OPPORTUNITY_COST = 30    # цена «сожжённого» контакта при выборе размера пилота
 MIN_CELL_SIZE = 60             # ячейки меньше не пилотируем и не таргетируем
 
-# Приор из истории: насколько мы ей доверяем
-PRIOR_REL_SD = 1.0             # история — другая выборка: σ ≈ 100% от оценки
-PRIOR_ABS_SD = 0.05
-UNSEEN_SD = 0.08               # переходы, которых нет в истории
-SHRINK_K0 = 5                  # сглаживание малых групп к среднему по паре тарифов
-TARGETS_PER_CELL = 4
+SHRINK_K0 = 5                  # сглаживание малых групп истории к среднему по паре тарифов
+UNSEEN_SD = 0.08               # разброс ценовой прикидки для переходов без истории
+
+# Насколько история похожа на правду: эффект = β·h + b + N(0, τ² + ρ²·h²).
+# Сетка гиперпараметров и их априорное распределение.
+BETA_GRID = np.linspace(-0.5, 1.5, 21)
+BETA_PRIOR = (0.8, 0.5)        # по умолчанию история скорее верна, но с запасом
+BIAS_GRID = np.linspace(-0.15, 0.10, 26)
+BIAS_PRIOR_SD = 0.03
+TAU_GRID = np.geomspace(0.005, 0.25, 16)   # равномерно по log τ
+RHO_GRID = np.array([0.0, 0.25, 0.5, 0.75, 1.0, 1.5])  # относительная ошибка отдельного перехода
 
 KAPPA = 1.0                    # запускаем кампанию, если mean − κ·σ > 0
+KAPPA_PUSH = 0.5               # бесплатный push на остаток охвата — порог мягче
 MAX_CAMPAIGNS = 10
 MAX_PER_CAMPAIGN = 5000
 
 ARPU_BINS = [-math.inf, 1000, 5000, math.inf]
 ARPU_LABELS = ["LOW", "MID", "HIGH"]
+
+_B, _BIAS, _TAU, _RHO = np.meshgrid(BETA_GRID, BIAS_GRID, TAU_GRID, RHO_GRID, indexing="ij")
+_LOG_PRIOR = (-0.5 * ((_B - BETA_PRIOR[0]) / BETA_PRIOR[1]) ** 2
+              - 0.5 * (_BIAS / BIAS_PRIOR_SD) ** 2)
 
 
 def _norm_pdf(z):
@@ -78,6 +91,7 @@ class Agent:
         cells = self._build_cells(env.customer_profile)
         prior = self._history_prior()
         cands = self._build_candidates(cells, prior, env.tariffs)
+        self._refresh(cands)
         self.log(f"[agent] ячеек: {len(cells)}, гипотез для разведки: {len(cands)}")
 
         self._explore(env, cells, cands)
@@ -102,7 +116,7 @@ class Agent:
 
     # ---------------------------------------------------------------- prior
     def _history_prior(self):
-        """(from, to, seg) -> (mean, sd) эффекта в «базовых» единицах (множитель канала = 1)."""
+        """(from, to, seg) -> (h, v_h): оценка эффекта по истории и её выборочная дисперсия."""
         paths = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "change_tariff.csv"),
                  os.path.join("data", "change_tariff.csv")]
         df = None
@@ -135,10 +149,7 @@ class Agent:
             conv = k / r.total
             pct = (k * r.mean + SHRINK_K0 * r.pair_mean) / (k + SHRINK_K0)
             pct_sd = r.std if k > 2 and not math.isnan(r.std) else pct_sd_all
-            m0 = pct * conv
-            var_hist = (conv * pct_sd) ** 2 / k
-            s0 = math.sqrt(var_hist + (PRIOR_REL_SD * m0) ** 2 + PRIOR_ABS_SD ** 2)
-            prior[(r.tariff_plan_code_from, r.tariff_plan_code_to, r.seg)] = (m0, s0)
+            prior[(r.tariff_plan_code_from, r.tariff_plan_code_to, r.seg)] = (pct * conv, (conv * pct_sd) ** 2 / k)
         self._median_conv = float((g["size"] / g["total"]).median())
         return prior
 
@@ -147,25 +158,61 @@ class Agent:
         price = tariffs.set_index("tariff_plan_code")["price_tariff"]
         conv = getattr(self, "_median_conv", 0.1)
         if t_from not in price.index or t_to not in price.index:
-            return 0.0, UNSEEN_SD
+            return 0.0, UNSEEN_SD ** 2
         base = max(float(price[t_from]), float(price.median()), 1.0)
         pct = max(min((float(price[t_to]) - float(price[t_from])) / base, 1.0), -1.0) * 0.5
-        return pct * conv, UNSEEN_SD
+        return pct * conv, UNSEEN_SD ** 2
 
     def _build_candidates(self, cells, prior, tariffs):
-        targets = list(tariffs["tariff_plan_code"])
         cands = []
         for key, cell in cells.items():
-            options = []
-            for t in targets:
+            for t in tariffs["tariff_plan_code"]:
                 if t == cell["tariff"]:
                     continue
-                m0, s0 = prior.get((cell["tariff"], t, cell["seg"])) or self._price_prior(tariffs, cell["tariff"], t)
-                options.append({"cell": key, "target": t, "m": m0, "s": s0, "n_pilots": 0, "pilot_n": 0})
-            # оставляем самые многообещающие по оптимистичной оценке
-            options.sort(key=lambda o: o["m"] + o["s"], reverse=True)
-            cands.extend(options[:TARGETS_PER_CELL])
+                h, vh = prior.get((cell["tariff"], t, cell["seg"])) or self._price_prior(tariffs, cell["tariff"], t)
+                cands.append({"cell": key, "target": t, "h": h, "vh": vh, "ys": [], "vs": [],
+                              "m": h, "s": math.sqrt(vh), "n_pilots": 0, "pilot_n": 0})
         return cands
+
+    def _refresh(self, cands):
+        """
+        Пересчитывает оценки всех гипотез.
+
+        1) По всем проведённым пилотам уточняем, насколько история похожа на
+           правду (β, b, τ, ρ) — апостериорное распределение на сетке.
+        2) Приор каждой гипотезы = β·h + b, разброс = v_h + τ² + ρ²·h² + неопределённость β и b.
+        3) Если гипотезу пилотировали, объединяем приор с её замерами по весам точности.
+        """
+        seen = [c for c in cands if c["vs"]]
+        log_w = _LOG_PRIOR
+        if seen:
+            h = np.array([c["h"] for c in seen])
+            vh = np.array([c["vh"] for c in seen])
+            vo = np.array([1.0 / sum(1.0 / v for v in c["vs"]) for c in seen])
+            y = np.array([o * sum(yi / v for yi, v in zip(c["ys"], c["vs"])) for c, o in zip(seen, vo)])
+            mean = _B[..., None] * h + _BIAS[..., None]
+            var = vh + _TAU[..., None] ** 2 + _RHO[..., None] ** 2 * h ** 2 + vo
+            log_w = log_w + (-0.5 * np.log(var) - 0.5 * (y - mean) ** 2 / var).sum(axis=-1)
+        w = np.exp(log_w - log_w.max())
+        w /= w.sum()
+
+        eb, ebias = float((w * _B).sum()), float((w * _BIAS).sum())
+        vb = float((w * (_B - eb) ** 2).sum())
+        vbias = float((w * (_BIAS - ebias) ** 2).sum())
+        cov = float((w * (_B - eb) * (_BIAS - ebias)).sum())
+        et2 = float((w * _TAU ** 2).sum())
+        er2 = float((w * _RHO ** 2).sum())
+        self.trust = (eb, ebias, math.sqrt(et2), math.sqrt(er2))
+
+        for c in cands:
+            mu = eb * c["h"] + ebias
+            var = max(c["vh"] + et2 + (er2 + vb) * c["h"] ** 2 + vbias + 2 * cov * c["h"], 1e-8)
+            if c["vs"]:
+                prec = 1.0 / var + sum(1.0 / v for v in c["vs"])
+                c["m"] = (mu / var + sum(yi / v for yi, v in zip(c["ys"], c["vs"]))) / prec
+                c["s"] = math.sqrt(1.0 / prec)
+            else:
+                c["m"], c["s"] = mu, math.sqrt(var)
 
     # ------------------------------------------------------------ explore
     def _lb(self, c):
@@ -181,6 +228,11 @@ class Agent:
         after = _expected_excess(cand["m"] - KAPPA * s_new, sig_t, c)
         return cell["stake"] * mult * (after - before)
 
+    def _pilot_downside(self, cand, cell, n, mult):
+        """Ожидаемый ущерб абонентам пилота: они реальные, и отрицательный эффект идёт в счёт."""
+        e_neg = cand["m"] - _expected_excess(cand["m"], cand["s"], 0.0)   # E[min(θ, 0)] ≤ 0
+        return n * cell["arpu_mean"] * mult * e_neg
+
     def _explore(self, env, cells, cands):
         if PILOT_CHANNEL not in self.channels:
             return
@@ -195,17 +247,24 @@ class Agent:
 
         while env.pilots_left > 0:
             best = None
-            for c in cands:
-                cell = cells[c["cell"]]
-                others = [self._lb(o) for o in by_cell[c["cell"]] if o is not c]
-                others_best = max(others) if others else 0.0
+            for key, group in by_cell.items():
+                cell = cells[key]
+                lbs = sorted((self._lb(o) for o in group), reverse=True)
                 n_max = min(max(PILOT_SIZES), cell["n"] // 2, pilot_contact_cap - used)
                 if cost > 0:
                     n_max = min(n_max, int(env.remaining_budget // cost))
-                for n in sorted({s for s in PILOT_SIZES if s <= n_max} | ({n_max} if n_max >= min(PILOT_SIZES) else set())):
-                    score = self._pilot_value(c, cell, n, others_best, mult) - n * (cost + PILOT_OPPORTUNITY_COST)
-                    if best is None or score > best[0]:
-                        best = (score, c, n)
+                sizes = sorted({s for s in PILOT_SIZES if s <= n_max} | ({n_max} if n_max >= min(PILOT_SIZES) else set()))
+                if not sizes:
+                    continue
+                for c in group:
+                    lb = self._lb(c)
+                    others_best = lbs[1] if lb == lbs[0] and len(lbs) > 1 else lbs[0]
+                    for n in sizes:
+                        score = (self._pilot_value(c, cell, n, others_best, mult)
+                                 + self._pilot_downside(c, cell, n, mult)
+                                 - n * (cost + PILOT_OPPORTUNITY_COST))
+                        if best is None or score > best[0]:
+                            best = (score, c, n)
             if best is None or best[0] <= 0:
                 break
 
@@ -221,15 +280,16 @@ class Agent:
             n_real = res["n_customers"]
             used += n_real
             y = res["observed_lift_ratio"] / mult
-            var_obs = (PILOT_NOISE / math.sqrt(n_real) / mult) ** 2
-            prec = 1.0 / c["s"] ** 2 + 1.0 / var_obs
             m_old = c["m"]
-            c["m"] = (c["m"] / c["s"] ** 2 + y / var_obs) / prec
-            c["s"] = math.sqrt(1.0 / prec)
+            c["ys"].append(y)
+            c["vs"].append((PILOT_NOISE / math.sqrt(n_real) / mult) ** 2)
             c["n_pilots"] += 1
             c["pilot_n"] += n_real
+            self._refresh(cands)
+            beta, bias, tau, rho = self.trust
             self.log(f"[agent] пилот {cell['tariff']}/{cell['seg']} → {c['target']} n={n_real}: "
-                     f"наблюдали {y:+.3f}, оценка {m_old:+.3f} → {c['m']:+.3f} ± {c['s']:.3f}")
+                     f"наблюдали {y:+.3f}, оценка {m_old:+.3f} → {c['m']:+.3f} ± {c['s']:.3f}; "
+                     f"доверие к истории β={beta:.2f} b={bias:+.3f} τ={tau:.3f} ρ={rho:.2f}")
 
     # --------------------------------------------------------------- plan
     def _plan(self, env, cells, cands):
@@ -292,6 +352,32 @@ class Agent:
             u["channel"] = ch
             money_left -= extra
             upgraded.add(id(u))
+
+        # остаток охвата — бесплатным каналом в ячейки, не вошедшие в план
+        free = by_cost[0]
+        if channels[free]["cost_per_contact"] == 0 and contacts_left > 0:
+            taken = {(u["cell"]["tariff"], u["cell"]["seg"]) for u in chosen}
+            fill = []
+            for key in cells:
+                if key in taken:
+                    continue
+                c = max((x for x in cands if x["cell"] == key), key=lambda x: x["m"] - KAPPA_PUSH * x["s"])
+                est = c["m"] - KAPPA_PUSH * c["s"]
+                if est <= 0:
+                    continue
+                cell = cells[key]
+                value = {ch: cell["arpu_mean"] * est * channels[ch]["conversion_multiplier"]
+                         - channels[ch]["cost_per_contact"] for ch in channels}
+                fill.append({"cell": cell, "cand": c, "n": min(cell["n"], MAX_PER_CAMPAIGN),
+                             "value": value, "channel": free})
+            fill.sort(key=lambda u: u["value"][free], reverse=True)
+            for u in fill:
+                take = min(u["n"], contacts_left)
+                if take <= 0:
+                    break
+                u["take"] = take
+                contacts_left -= take
+                chosen.append(u)
 
         # объединяем ячейки в кампании: один тариф + канал + ARPU-сегмент
         groups = {}
