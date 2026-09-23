@@ -1,0 +1,5 @@
+campaign_name,filter_arpu_segment,filter_data_segment,filter_call_segment,filter_current_tariff,target_tariff,channel
+history_pilot_1,MID,,,tariff_13,tariff_8,digital_ads
+history_pilot_2,MID,,,tariff_4,tariff_8,digital_ads
+history_pilot_3,LOW,,,tariff_8,tariff_9,digital_ads
+history_pilot_4,MID,,,tariff_12,tariff_8,digital_ads
