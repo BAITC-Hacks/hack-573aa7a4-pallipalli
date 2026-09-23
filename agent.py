@@ -1,7 +1,7 @@
 """
-Агент тарифных кампаний v2: разведка, которая сама решает, насколько верить истории.
+Агент тарифных кампаний: разведка, которая сама решает, насколько верить истории.
 
-Отличия от agent.py:
+Главные идеи:
 
 1. ДОВЕРИЕ К ИСТОРИИ УЧИТСЯ. Вместо зашитой погрешности приора агент считает,
    что истинный эффект ≈ β·h + b ± τ ± ρ·|h| (h — оценка по истории), и после
@@ -86,11 +86,23 @@ class Agent:
 
     # ------------------------------------------------------------------ act
     def act(self, env):
+        self._cells, self._cands = {}, []
+        try:
+            return self._act(env)
+        except Exception as e:
+            # Проведённые пилоты уже в зачёте: вместо падения отдаём запасной план.
+            self.log(f"[agent] сбой: {type(e).__name__}: {e} — запасной план")
+            try:
+                return [self._fallback_campaign(self._cells, self._cands)]
+            except Exception:
+                return []
+
+    def _act(self, env):
         self.env = env
         self.channels = env.channels
-        cells = self._build_cells(env.customer_profile)
+        cells = self._cells = self._build_cells(env.customer_profile)
         prior = self._history_prior()
-        cands = self._build_candidates(cells, prior, env.tariffs)
+        cands = self._cands = self._build_candidates(cells, prior, env.tariffs)
         self._refresh(cands)
         self.log(f"[agent] ячеек: {len(cells)}, гипотез для разведки: {len(cands)}")
 
